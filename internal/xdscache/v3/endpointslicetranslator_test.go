@@ -65,7 +65,7 @@ func TestEndpointSliceTranslatorContents(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			endpointSliceTranslator := NewEndpointSliceTranslator(fixture.NewTestLogger(t))
+			endpointSliceTranslator := NewEndpointSliceTranslator(fixture.NewTestLogger(t), ZoneAwareRoutingConfig{})
 			endpointSliceTranslator.entries = tc.contents
 			got := endpointSliceTranslator.Contents()
 			protobuf.ExpectEqual(t, tc.want, got)
@@ -403,7 +403,7 @@ func TestEndpointSliceTranslatorAddEndpoints(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			endpointSliceTranslator := NewEndpointSliceTranslator(fixture.NewTestLogger(t))
+			endpointSliceTranslator := NewEndpointSliceTranslator(fixture.NewTestLogger(t), ZoneAwareRoutingConfig{})
 			observer := &simpleObserver{}
 			endpointSliceTranslator.Observer = observer
 
@@ -609,7 +609,7 @@ func TestEndpointSliceTranslatorRemoveEndpoints(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			endpointSliceTranslator := NewEndpointSliceTranslator(fixture.NewTestLogger(t))
+			endpointSliceTranslator := NewEndpointSliceTranslator(fixture.NewTestLogger(t), ZoneAwareRoutingConfig{})
 			require.NoError(t, endpointSliceTranslator.cache.SetClusters(clusters))
 			tc.setup(endpointSliceTranslator)
 
@@ -740,7 +740,7 @@ func TestEndpointSliceTranslatorUpdateEndpoints(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			endpointSliceTranslator := NewEndpointSliceTranslator(fixture.NewTestLogger(t))
+			endpointSliceTranslator := NewEndpointSliceTranslator(fixture.NewTestLogger(t), ZoneAwareRoutingConfig{})
 			require.NoError(t, endpointSliceTranslator.cache.SetClusters(clusters))
 			tc.setup(endpointSliceTranslator)
 
@@ -966,7 +966,7 @@ func TestEndpointSliceTranslatorRecomputeClusterLoadAssignment(t *testing.T) {
 	for name, tc := range tests {
 		tc := tc
 		t.Run(name, func(t *testing.T) {
-			endpointSliceTranslator := NewEndpointSliceTranslator(fixture.NewTestLogger(t))
+			endpointSliceTranslator := NewEndpointSliceTranslator(fixture.NewTestLogger(t), ZoneAwareRoutingConfig{})
 			require.NoError(t, endpointSliceTranslator.cache.SetClusters([]*dag.ServiceCluster{&tc.cluster}))
 			endpointSliceTranslator.OnAdd(tc.endpointSlice, false)
 			got := endpointSliceTranslator.Contents()
@@ -976,7 +976,7 @@ func TestEndpointSliceTranslatorRecomputeClusterLoadAssignment(t *testing.T) {
 }
 
 func TestEndpointSliceTranslatorScaleToZeroEndpoints(t *testing.T) {
-	endpointSliceTranslator := NewEndpointSliceTranslator(fixture.NewTestLogger(t))
+	endpointSliceTranslator := NewEndpointSliceTranslator(fixture.NewTestLogger(t), ZoneAwareRoutingConfig{})
 
 	require.NoError(t, endpointSliceTranslator.cache.SetClusters([]*dag.ServiceCluster{
 		{
@@ -1026,7 +1026,7 @@ func TestEndpointSliceTranslatorScaleToZeroEndpoints(t *testing.T) {
 }
 
 func TestEndpointSliceTranslatorWeightedService(t *testing.T) {
-	endpointSliceTranslator := NewEndpointSliceTranslator(fixture.NewTestLogger(t))
+	endpointSliceTranslator := NewEndpointSliceTranslator(fixture.NewTestLogger(t), ZoneAwareRoutingConfig{})
 	clusters := []*dag.ServiceCluster{
 		{
 			ClusterName: "default/weighted",
@@ -1092,7 +1092,7 @@ func TestEndpointSliceTranslatorWeightedService(t *testing.T) {
 }
 
 func TestEndpointSliceTranslatorDefaultWeightedService(t *testing.T) {
-	endpointSliceTranslator := NewEndpointSliceTranslator(fixture.NewTestLogger(t))
+	endpointSliceTranslator := NewEndpointSliceTranslator(fixture.NewTestLogger(t), ZoneAwareRoutingConfig{})
 	clusters := []*dag.ServiceCluster{
 		{
 			ClusterName: "default/weighted",
@@ -1285,5 +1285,182 @@ func healthCheckLBEndpoint(addr *envoy_config_core_v3.Address, healthCheckPort u
 				HealthCheckConfig: hc,
 			},
 		},
+	}
+}
+
+func TestEndpointSliceTranslatorZoneAwareRouting(t *testing.T) {
+	tests := map[string]struct {
+		zarConfig ZoneAwareRoutingConfig
+		endpoints []discovery_v1.Endpoint
+		want      []*envoy_config_endpoint_v3.LocalityLbEndpoints
+	}{
+		"ZAR disabled - all endpoints in single group without locality": {
+			zarConfig: ZoneAwareRoutingConfig{Enabled: false},
+			endpoints: []discovery_v1.Endpoint{
+				{Addresses: []string{"10.0.0.1"}, Conditions: discovery_v1.EndpointConditions{Ready: ptr.To(true)}, Zone: ptr.To("zone-a")},
+				{Addresses: []string{"10.0.0.2"}, Conditions: discovery_v1.EndpointConditions{Ready: ptr.To(true)}, Zone: ptr.To("zone-b")},
+			},
+			want: []*envoy_config_endpoint_v3.LocalityLbEndpoints{
+				{
+					LbEndpoints: []*envoy_config_endpoint_v3.LbEndpoint{
+						envoy_v3.LBEndpoint(envoy_v3.SocketAddress("10.0.0.1", 8080)),
+						envoy_v3.LBEndpoint(envoy_v3.SocketAddress("10.0.0.2", 8080)),
+					},
+					LoadBalancingWeight: wrapperspb.UInt32(1),
+				},
+			},
+		},
+		"ZAR enabled - endpoints grouped by zone with locality set": {
+			zarConfig: ZoneAwareRoutingConfig{Enabled: true},
+			endpoints: []discovery_v1.Endpoint{
+				{Addresses: []string{"10.0.0.1"}, Conditions: discovery_v1.EndpointConditions{Ready: ptr.To(true)}, Zone: ptr.To("zone-a")},
+				{Addresses: []string{"10.0.0.2"}, Conditions: discovery_v1.EndpointConditions{Ready: ptr.To(true)}, Zone: ptr.To("zone-b")},
+				{Addresses: []string{"10.0.0.3"}, Conditions: discovery_v1.EndpointConditions{Ready: ptr.To(true)}, Zone: ptr.To("zone-a")},
+			},
+			want: []*envoy_config_endpoint_v3.LocalityLbEndpoints{
+				{
+					Locality: &envoy_config_core_v3.Locality{Zone: "zone-a"},
+					LbEndpoints: []*envoy_config_endpoint_v3.LbEndpoint{
+						envoy_v3.LBEndpoint(envoy_v3.SocketAddress("10.0.0.1", 8080)),
+						envoy_v3.LBEndpoint(envoy_v3.SocketAddress("10.0.0.3", 8080)),
+					},
+					LoadBalancingWeight: wrapperspb.UInt32(1),
+				},
+				{
+					Locality: &envoy_config_core_v3.Locality{Zone: "zone-b"},
+					LbEndpoints: []*envoy_config_endpoint_v3.LbEndpoint{
+						envoy_v3.LBEndpoint(envoy_v3.SocketAddress("10.0.0.2", 8080)),
+					},
+					LoadBalancingWeight: wrapperspb.UInt32(1),
+				},
+			},
+		},
+		"ZAR enabled - endpoints without zone go in empty zone group": {
+			zarConfig: ZoneAwareRoutingConfig{Enabled: true},
+			endpoints: []discovery_v1.Endpoint{
+				{Addresses: []string{"10.0.0.1"}, Conditions: discovery_v1.EndpointConditions{Ready: ptr.To(true)}, Zone: ptr.To("zone-a")},
+				{Addresses: []string{"10.0.0.2"}, Conditions: discovery_v1.EndpointConditions{Ready: ptr.To(true)}}, // no zone
+			},
+			want: []*envoy_config_endpoint_v3.LocalityLbEndpoints{
+				{
+					// Empty zone - no Locality set
+					LbEndpoints: []*envoy_config_endpoint_v3.LbEndpoint{
+						envoy_v3.LBEndpoint(envoy_v3.SocketAddress("10.0.0.2", 8080)),
+					},
+					LoadBalancingWeight: wrapperspb.UInt32(1),
+				},
+				{
+					Locality: &envoy_config_core_v3.Locality{Zone: "zone-a"},
+					LbEndpoints: []*envoy_config_endpoint_v3.LbEndpoint{
+						envoy_v3.LBEndpoint(envoy_v3.SocketAddress("10.0.0.1", 8080)),
+					},
+					LoadBalancingWeight: wrapperspb.UInt32(1),
+				},
+			},
+		},
+		"ZAR enabled - all endpoints in same zone": {
+			zarConfig: ZoneAwareRoutingConfig{Enabled: true},
+			endpoints: []discovery_v1.Endpoint{
+				{Addresses: []string{"10.0.0.1"}, Conditions: discovery_v1.EndpointConditions{Ready: ptr.To(true)}, Zone: ptr.To("zone-a")},
+				{Addresses: []string{"10.0.0.2"}, Conditions: discovery_v1.EndpointConditions{Ready: ptr.To(true)}, Zone: ptr.To("zone-a")},
+				{Addresses: []string{"10.0.0.3"}, Conditions: discovery_v1.EndpointConditions{Ready: ptr.To(true)}, Zone: ptr.To("zone-a")},
+			},
+			want: []*envoy_config_endpoint_v3.LocalityLbEndpoints{
+				{
+					Locality: &envoy_config_core_v3.Locality{Zone: "zone-a"},
+					LbEndpoints: []*envoy_config_endpoint_v3.LbEndpoint{
+						envoy_v3.LBEndpoint(envoy_v3.SocketAddress("10.0.0.1", 8080)),
+						envoy_v3.LBEndpoint(envoy_v3.SocketAddress("10.0.0.2", 8080)),
+						envoy_v3.LBEndpoint(envoy_v3.SocketAddress("10.0.0.3", 8080)),
+					},
+					LoadBalancingWeight: wrapperspb.UInt32(1),
+				},
+			},
+		},
+		"ZAR enabled - endpoints in three zones": {
+			zarConfig: ZoneAwareRoutingConfig{Enabled: true},
+			endpoints: []discovery_v1.Endpoint{
+				{Addresses: []string{"10.0.0.1"}, Conditions: discovery_v1.EndpointConditions{Ready: ptr.To(true)}, Zone: ptr.To("us-east-1a")},
+				{Addresses: []string{"10.0.0.2"}, Conditions: discovery_v1.EndpointConditions{Ready: ptr.To(true)}, Zone: ptr.To("us-east-1b")},
+				{Addresses: []string{"10.0.0.3"}, Conditions: discovery_v1.EndpointConditions{Ready: ptr.To(true)}, Zone: ptr.To("us-east-1c")},
+				{Addresses: []string{"10.0.0.4"}, Conditions: discovery_v1.EndpointConditions{Ready: ptr.To(true)}, Zone: ptr.To("us-east-1a")},
+			},
+			want: []*envoy_config_endpoint_v3.LocalityLbEndpoints{
+				{
+					Locality: &envoy_config_core_v3.Locality{Zone: "us-east-1a"},
+					LbEndpoints: []*envoy_config_endpoint_v3.LbEndpoint{
+						envoy_v3.LBEndpoint(envoy_v3.SocketAddress("10.0.0.1", 8080)),
+						envoy_v3.LBEndpoint(envoy_v3.SocketAddress("10.0.0.4", 8080)),
+					},
+					LoadBalancingWeight: wrapperspb.UInt32(1),
+				},
+				{
+					Locality: &envoy_config_core_v3.Locality{Zone: "us-east-1b"},
+					LbEndpoints: []*envoy_config_endpoint_v3.LbEndpoint{
+						envoy_v3.LBEndpoint(envoy_v3.SocketAddress("10.0.0.2", 8080)),
+					},
+					LoadBalancingWeight: wrapperspb.UInt32(1),
+				},
+				{
+					Locality: &envoy_config_core_v3.Locality{Zone: "us-east-1c"},
+					LbEndpoints: []*envoy_config_endpoint_v3.LbEndpoint{
+						envoy_v3.LBEndpoint(envoy_v3.SocketAddress("10.0.0.3", 8080)),
+					},
+					LoadBalancingWeight: wrapperspb.UInt32(1),
+				},
+			},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			endpointSliceTranslator := NewEndpointSliceTranslator(fixture.NewTestLogger(t), tc.zarConfig)
+
+			clusters := []*dag.ServiceCluster{
+				{
+					ClusterName: "default/httpbin-org",
+					Services: []dag.WeightedService{
+						{
+							Weight:           1,
+							ServiceName:      "httpbin-org",
+							ServiceNamespace: "default",
+							ServicePort:      core_v1.ServicePort{},
+						},
+					},
+				},
+			}
+			require.NoError(t, endpointSliceTranslator.cache.SetClusters(clusters))
+
+			ports := []discovery_v1.EndpointPort{
+				{
+					Port:     ptr.To[int32](8080),
+					Protocol: ptr.To(core_v1.ProtocolTCP),
+				},
+			}
+
+			endpointSliceTranslator.OnAdd(endpointSlice("default", "httpbin-org-eps", "httpbin-org", discovery_v1.AddressTypeIPv4, tc.endpoints, ports), false)
+
+			got := endpointSliceTranslator.Contents()
+			require.Len(t, got, 1)
+			cla := got[0].(*envoy_config_endpoint_v3.ClusterLoadAssignment)
+			assert.Equal(t, "default/httpbin-org", cla.ClusterName)
+			require.Len(t, cla.Endpoints, len(tc.want), "expected %d locality groups, got %d", len(tc.want), len(cla.Endpoints))
+
+			// Compare endpoints by zone - verify exact match for each locality group
+			for _, wantLE := range tc.want {
+				found := false
+				for _, gotLE := range cla.Endpoints {
+					if proto.Equal(wantLE.Locality, gotLE.Locality) {
+						// Verify the full LocalityLbEndpoints match
+						require.True(t, proto.Equal(wantLE, gotLE),
+							"LocalityLbEndpoints mismatch for zone %v:\nwant: %v\ngot: %v",
+							wantLE.Locality, wantLE, gotLE)
+						found = true
+						break
+					}
+				}
+				require.True(t, found, "expected locality %v not found in result", wantLE.Locality)
+			}
+		})
 	}
 }

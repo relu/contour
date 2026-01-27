@@ -1055,6 +1055,12 @@ type Service struct {
 	// Slow start will gradually increase amount of traffic to a newly added endpoint.
 	// +optional
 	SlowStartPolicy *SlowStartPolicy `json:"slowStartPolicy,omitempty"`
+	// ZoneAwareLB configures zone-aware load balancing for this service.
+	// When enabled, Envoy will prefer to route traffic to endpoints
+	// in the same zone as the Envoy instance.
+	// This setting takes precedence over route-level ZoneAwareLB settings.
+	// +optional
+	ZoneAwareLB *ZoneAwareLBPolicy `json:"zoneAwareLB,omitempty"`
 }
 
 // HTTPHealthCheckPolicy defines health checks on the upstream service.
@@ -1299,6 +1305,20 @@ type LoadBalancerPolicy struct {
 	// list of hash policies is empty after validation, the load balancing
 	// strategy will fall back to the default `RoundRobin`.
 	RequestHashPolicies []RequestHashPolicy `json:"requestHashPolicies,omitempty"`
+
+	// ZoneAwareLB configures zone-aware load balancing for this route.
+	// When enabled, Envoy will prefer to route traffic to endpoints
+	// in the same zone as the Envoy instance.
+	// +optional
+	ZoneAwareLB *ZoneAwareLBPolicy `json:"zoneAwareLB,omitempty"`
+}
+
+// ZoneAwareLBPolicy configures zone-aware load balancing.
+type ZoneAwareLBPolicy struct {
+	// Disabled allows disabling zone-aware load balancing for this
+	// route/service when it is enabled globally at the Contour level.
+	// +optional
+	Disabled bool `json:"disabled,omitempty"`
 }
 
 // HeadersPolicy defines how headers are managed during forwarding.

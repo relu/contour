@@ -41,6 +41,10 @@ func TestBootstrap(t *testing.T) {
 				Namespace: "testing-ns",
 			},
 			wantedBootstrapConfig: `{
+  "node": {
+    "id": "contour",
+    "cluster": "testing-ns"
+  },
   "static_resources": {
     "clusters": [
       {
@@ -215,6 +219,194 @@ func TestBootstrap(t *testing.T) {
   }
 }`,
 		},
+		"with zone configured": {
+			config: envoy.BootstrapConfig{
+				Path:      "envoy.json",
+				Namespace: "testing-ns",
+				Zone:      "us-west-2a",
+			},
+			wantedBootstrapConfig: `{
+  "node": {
+    "id": "contour",
+    "cluster": "testing-ns",
+    "locality": {
+      "zone": "us-west-2a"
+    }
+  },
+  "static_resources": {
+    "clusters": [
+      {
+        "name": "contour",
+        "alt_stat_name": "testing-ns_contour_8001",
+        "type": "STATIC",
+        "connect_timeout": "5s",
+        "load_assignment": {
+          "cluster_name": "contour",
+          "endpoints": [
+            {
+              "lb_endpoints": [
+                {
+                  "endpoint": {
+                    "address": {
+                      "socket_address": {
+                        "address": "127.0.0.1",
+                        "port_value": 8001
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "circuit_breakers": {
+          "thresholds": [
+            {
+              "priority": "HIGH",
+              "max_connections": 100000,
+              "max_pending_requests": 100000,
+              "max_requests": 60000000,
+              "max_retries": 50,
+              "track_remaining": true
+            },
+            {
+              "max_connections": 100000,
+              "max_pending_requests": 100000,
+              "max_requests": 60000000,
+              "max_retries": 50,
+              "track_remaining": true
+            }
+          ]
+        },
+        "typed_extension_protocol_options": {
+          "envoy.extensions.upstreams.http.v3.HttpProtocolOptions": {
+            "@type": "type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions",
+            "explicit_http_config": {
+              "http2_protocol_options": {}
+            }
+          }
+        },
+        "upstream_connection_options": {
+          "tcp_keepalive": {
+            "keepalive_probes": 3,
+            "keepalive_time": 30,
+            "keepalive_interval": 5
+          }
+        }
+      },
+      {
+        "name": "envoy-admin",
+        "alt_stat_name": "testing-ns_envoy-admin_9001",
+        "type": "STATIC",
+        "connect_timeout": "0.250s",
+        "load_assignment": {
+          "cluster_name": "envoy-admin",
+          "endpoints": [
+            {
+              "lb_endpoints": [
+                {
+                  "endpoint": {
+                    "address": {
+                      "pipe": {
+                        "path": "/admin/admin.sock",
+                        "mode": "420"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "dynamic_resources": {
+    "lds_config": {
+      "api_config_source": {
+        "api_type": "GRPC",
+        "transport_api_version": "V3",
+        "grpc_services": [
+          {
+            "envoy_grpc": {
+              "cluster_name": "contour",
+              "authority": "contour"
+            }
+          }
+        ]
+      },
+	  "resource_api_version": "V3"
+    },
+    "cds_config": {
+      "api_config_source": {
+        "api_type": "GRPC",
+        "transport_api_version": "V3",
+        "grpc_services": [
+          {
+            "envoy_grpc": {
+              "cluster_name": "contour",
+              "authority": "contour"
+            }
+          }
+        ]
+      },
+	  "resource_api_version": "V3"
+    }
+  },
+  "default_regex_engine": {
+    "name": "envoy.regex_engines.google_re2",
+    "typed_config": {
+      "@type": "type.googleapis.com/envoy.extensions.regex_engines.v3.GoogleRE2"
+    }
+  },
+  "admin": {
+    "access_log": [
+      {
+        "name": "envoy.access_loggers.file",
+        "typed_config": {
+          "@type": "type.googleapis.com/envoy.extensions.access_loggers.file.v3.FileAccessLog",
+          "path": "/dev/null"
+        }
+      }
+    ],
+    "address": {
+      "pipe": {
+        "path": "/admin/admin.sock",
+        "mode": "420"
+      }
+    }
+  },
+  "layered_runtime": {
+    "layers": [
+      {
+        "name": "dynamic",
+        "rtds_layer": {
+          "name": "dynamic",
+          "rtds_config": {
+            "api_config_source": {
+              "api_type": "GRPC",
+              "transport_api_version": "V3",
+              "grpc_services": [
+                {
+                  "envoy_grpc": {
+                    "cluster_name": "contour",
+                    "authority": "contour"
+                  }
+                }
+              ]
+            },
+            "resource_api_version": "V3"
+          }
+        }
+      },
+      {
+        "name": "admin",
+        "admin_layer": {}
+      }
+    ]
+  }
+}`,
+		},
 		"--admin-address=someaddr": {
 			config: envoy.BootstrapConfig{
 				Path:         "envoy.json",
@@ -222,6 +414,10 @@ func TestBootstrap(t *testing.T) {
 				Namespace:    "testing-ns",
 			},
 			wantedBootstrapConfig: `{
+  "node": {
+    "id": "contour",
+    "cluster": "testing-ns"
+  },
   "static_resources": {
     "clusters": [
       {
@@ -403,6 +599,10 @@ func TestBootstrap(t *testing.T) {
 				Namespace:          "testing-ns",
 			},
 			wantedBootstrapConfig: `{
+  "node": {
+    "id": "contour",
+    "cluster": "testing-ns"
+  },
   "static_resources": {
     "clusters": [
       {
@@ -585,6 +785,10 @@ func TestBootstrap(t *testing.T) {
 				Namespace:   "testing-ns",
 			},
 			wantedBootstrapConfig: `{
+  "node": {
+    "id": "contour",
+    "cluster": "testing-ns"
+  },
   "static_resources": {
     "clusters": [
       {
@@ -767,6 +971,10 @@ func TestBootstrap(t *testing.T) {
 				Namespace:   "testing-ns",
 			},
 			wantedBootstrapConfig: `{
+  "node": {
+    "id": "contour",
+    "cluster": "testing-ns"
+  },
   "static_resources": {
     "clusters": [
       {
@@ -949,6 +1157,10 @@ func TestBootstrap(t *testing.T) {
 				Namespace:   "testing-ns",
 			},
 			wantedBootstrapConfig: `{
+  "node": {
+    "id": "contour",
+    "cluster": "testing-ns"
+  },
   "static_resources": {
     "clusters": [
       {
@@ -1132,6 +1344,10 @@ func TestBootstrap(t *testing.T) {
 				DNSLookupFamily: "v6",
 			},
 			wantedBootstrapConfig: `{
+  "node": {
+    "id": "contour",
+    "cluster": "testing-ns"
+  },
   "static_resources": {
     "clusters": [
       {
@@ -1317,6 +1533,10 @@ func TestBootstrap(t *testing.T) {
 				SkipFilePathCheck: true,
 			},
 			wantedBootstrapConfig: `{
+  "node": {
+    "id": "contour",
+    "cluster": "testing-ns"
+  },
   "static_resources": {
     "clusters": [
       {
@@ -1536,6 +1756,10 @@ func TestBootstrap(t *testing.T) {
 				SkipFilePathCheck: true,
 			},
 			wantedBootstrapConfig: `{
+        "node": {
+          "id": "contour",
+          "cluster": "testing-ns"
+        },
         "static_resources": {
           "clusters": [
             {
@@ -1807,6 +2031,10 @@ func TestBootstrap(t *testing.T) {
 				MaximumHeapSizeBytes: 2147483648, // 2 GiB
 			},
 			wantedBootstrapConfig: `{
+        "node": {
+          "id": "contour",
+          "cluster": "projectcontour"
+        },
         "static_resources": {
           "clusters": [
             {
@@ -2024,6 +2252,10 @@ func TestBootstrap(t *testing.T) {
 				GlobalDownstreamConnectionLimit: 54321,
 			},
 			wantedBootstrapConfig: `{
+          "node": {
+            "id": "contour",
+            "cluster": "projectcontour"
+          },
           "static_resources": {
             "clusters": [
               {
@@ -2218,6 +2450,10 @@ func TestBootstrap(t *testing.T) {
 				GlobalDownstreamConnectionLimit: 54321,
 			},
 			wantedBootstrapConfig: `{
+            "node": {
+              "id": "contour",
+              "cluster": "projectcontour"
+            },
             "static_resources": {
               "clusters": [
                 {

@@ -505,6 +505,9 @@ func defaultContourConfiguration() contour_v1alpha1.ContourConfigurationSpec {
 			Address: "0.0.0.0",
 			Port:    8000,
 		},
+		ZoneAwareRouting: &contour_v1alpha1.ZoneAwareRoutingConfig{
+			Enabled: ptr.To(false),
+		},
 	}
 }
 

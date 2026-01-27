@@ -71,7 +71,8 @@ func (d *DAG) EnsureService(meta types.NamespacedName, port, healthPort int, cac
 			PerHostMaxConnections: annotation.PerHostMaxConnections(svc),
 			MaxRetries:            annotation.MaxRetries(svc),
 		},
-		ExternalName: externalName(svc),
+		ExternalName:        externalName(svc),
+		ZoneAwareLBDisabled: annotation.ZoneAwareLBDisabled(svc),
 	}, nil
 }
 

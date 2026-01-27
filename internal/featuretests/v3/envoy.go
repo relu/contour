@@ -53,7 +53,7 @@ func DefaultCluster(clusters ...*envoy_config_cluster_v3.Cluster) *envoy_config_
 	defaults := &envoy_config_cluster_v3.Cluster{
 		ConnectTimeout: durationpb.New(2 * time.Second),
 		LbPolicy:       envoy_config_cluster_v3.Cluster_ROUND_ROBIN,
-		CommonLbConfig: envoy_v3.ClusterCommonLBConfig(),
+		CommonLbConfig: envoy_v3.ClusterCommonLBConfig(envoy_v3.ZoneAwareLBOpts{}),
 	}
 
 	for _, c := range clusters {

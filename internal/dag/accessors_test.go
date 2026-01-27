@@ -335,6 +335,89 @@ func TestGetSingleListener(t *testing.T) {
 	})
 }
 
+func TestEnsureServiceZoneAwareLBDisabled(t *testing.T) {
+	svcWithZoneAwareLBDisabled := &core_v1.Service{
+		ObjectMeta: meta_v1.ObjectMeta{
+			Name:      "svc-with-zone-aware-lb-disabled",
+			Namespace: "default",
+			Annotations: map[string]string{
+				"projectcontour.io/zone-aware-lb-disabled": "true",
+			},
+		},
+		Spec: core_v1.ServiceSpec{
+			Ports: []core_v1.ServicePort{makeServicePort("http", "TCP", 8080, 8080)},
+		},
+	}
+
+	svcWithZoneAwareLBDisabledFalse := &core_v1.Service{
+		ObjectMeta: meta_v1.ObjectMeta{
+			Name:      "svc-with-zone-aware-lb-disabled-false",
+			Namespace: "default",
+			Annotations: map[string]string{
+				"projectcontour.io/zone-aware-lb-disabled": "false",
+			},
+		},
+		Spec: core_v1.ServiceSpec{
+			Ports: []core_v1.ServicePort{makeServicePort("http", "TCP", 8080, 8080)},
+		},
+	}
+
+	svcWithoutAnnotation := &core_v1.Service{
+		ObjectMeta: meta_v1.ObjectMeta{
+			Name:      "svc-without-annotation",
+			Namespace: "default",
+		},
+		Spec: core_v1.ServiceSpec{
+			Ports: []core_v1.ServicePort{makeServicePort("http", "TCP", 8080, 8080)},
+		},
+	}
+
+	services := map[types.NamespacedName]*core_v1.Service{
+		{Name: svcWithZoneAwareLBDisabled.Name, Namespace: svcWithZoneAwareLBDisabled.Namespace}:           svcWithZoneAwareLBDisabled,
+		{Name: svcWithZoneAwareLBDisabledFalse.Name, Namespace: svcWithZoneAwareLBDisabledFalse.Namespace}: svcWithZoneAwareLBDisabledFalse,
+		{Name: svcWithoutAnnotation.Name, Namespace: svcWithoutAnnotation.Namespace}:                       svcWithoutAnnotation,
+	}
+
+	tests := map[string]struct {
+		types.NamespacedName
+		port                    int
+		wantZoneAwareLBDisabled bool
+	}{
+		"service with zone-aware-lb-disabled annotation set to true": {
+			NamespacedName:          types.NamespacedName{Name: svcWithZoneAwareLBDisabled.Name, Namespace: "default"},
+			port:                    8080,
+			wantZoneAwareLBDisabled: true,
+		},
+		"service with zone-aware-lb-disabled annotation set to false": {
+			NamespacedName:          types.NamespacedName{Name: svcWithZoneAwareLBDisabledFalse.Name, Namespace: "default"},
+			port:                    8080,
+			wantZoneAwareLBDisabled: false,
+		},
+		"service without zone-aware-lb-disabled annotation": {
+			NamespacedName:          types.NamespacedName{Name: svcWithoutAnnotation.Name, Namespace: "default"},
+			port:                    8080,
+			wantZoneAwareLBDisabled: false,
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			b := Builder{
+				Source: KubernetesCache{
+					services:    services,
+					FieldLogger: fixture.NewTestLogger(t),
+				},
+			}
+
+			var dag DAG
+
+			got, gotErr := dag.EnsureService(tc.NamespacedName, tc.port, 0, &b.Source, false)
+			require.NoError(t, gotErr)
+			assert.Equal(t, tc.wantZoneAwareLBDisabled, got.ZoneAwareLBDisabled)
+		})
+	}
+}
+
 func TestGetServiceClusters(t *testing.T) {
 	d := &DAG{
 		Listeners: map[string]*Listener{

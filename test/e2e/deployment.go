@@ -90,6 +90,8 @@ type Deployment struct {
 	CertgenRoleBinding        *rbac_v1.RoleBinding
 	CertgenRole               *rbac_v1.Role
 	CertgenJob                *batch_v1.Job
+	EnvoyClusterRole          *rbac_v1.ClusterRole
+	EnvoyClusterRoleBinding   *rbac_v1.ClusterRoleBinding
 	ContourClusterRoleBinding *rbac_v1.ClusterRoleBinding
 	ContourRoleBinding        *rbac_v1.RoleBinding
 	ContourClusterRole        *rbac_v1.ClusterRole
@@ -156,6 +158,8 @@ func (d *Deployment) UnmarshalResources() error {
 	d.CertgenRoleBinding = new(rbac_v1.RoleBinding)
 	d.CertgenRole = new(rbac_v1.Role)
 	d.CertgenJob = new(batch_v1.Job)
+	d.EnvoyClusterRole = new(rbac_v1.ClusterRole)
+	d.EnvoyClusterRoleBinding = new(rbac_v1.ClusterRoleBinding)
 	d.ContourClusterRoleBinding = new(rbac_v1.ClusterRoleBinding)
 	d.ContourRoleBinding = new(rbac_v1.RoleBinding)
 	d.ContourClusterRole = new(rbac_v1.ClusterRole)
@@ -180,6 +184,8 @@ func (d *Deployment) UnmarshalResources() error {
 		d.CertgenRoleBinding,
 		d.CertgenRole,
 		d.CertgenJob,
+		d.EnvoyClusterRole,
+		d.EnvoyClusterRoleBinding,
 		d.ContourClusterRoleBinding,
 		d.ContourRoleBinding,
 		d.ContourClusterRole,
@@ -330,6 +336,14 @@ func (d *Deployment) EnsureCertgenJob() error {
 		return err
 	}
 	return d.client.Create(context.TODO(), d.CertgenJob)
+}
+
+func (d *Deployment) EnsureEnvoyClusterRole() error {
+	return d.ensureResource(d.EnvoyClusterRole, new(rbac_v1.ClusterRole))
+}
+
+func (d *Deployment) EnsureEnvoyClusterRoleBinding() error {
+	return d.ensureResource(d.EnvoyClusterRoleBinding, new(rbac_v1.ClusterRoleBinding))
 }
 
 func (d *Deployment) EnsureContourClusterRoleBinding() error {
@@ -775,6 +789,12 @@ func (d *Deployment) EnsureResourcesForInclusterContour(startContourDeployment b
 	if err := d.EnsureCertgenJob(); err != nil {
 		return err
 	}
+	if err := d.EnsureEnvoyClusterRole(); err != nil {
+		return err
+	}
+	if err := d.EnsureEnvoyClusterRoleBinding(); err != nil {
+		return err
+	}
 	if err := d.EnsureContourClusterRoleBinding(); err != nil {
 		return err
 	}
@@ -885,6 +905,8 @@ func (d *Deployment) DeleteResourcesForInclusterContour() error {
 		d.ContourClusterRole,
 		d.ContourRoleBinding,
 		d.ContourClusterRoleBinding,
+		d.EnvoyClusterRoleBinding,
+		d.EnvoyClusterRole,
 		d.CertgenJob,
 		d.CertgenRole,
 		d.CertgenRoleBinding,

@@ -101,6 +101,12 @@ type BootstrapConfig struct {
 	//
 	// Although a valid limit must be >= 0, to avoid overflow we require the type be int64
 	GlobalDownstreamConnectionLimit int64
+
+	// Zone is the availability zone where Envoy is running.
+	// When set, Envoy will prefer endpoints in the same zone for zone-aware load balancing.
+	// This is automatically discovered from the node's topology.kubernetes.io/zone label
+	// when NODE_NAME environment variable is set.
+	Zone string
 }
 
 // GetXdsAddress returns the address configured or defaults to "127.0.0.1"

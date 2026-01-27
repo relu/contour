@@ -24,16 +24,38 @@ import (
 const DefaultXDSClusterName = "contour"
 
 type EnvoyGen struct {
-	xdsClusterName string
+	xdsClusterName  string
+	zoneAwareLBOpts ZoneAwareLBOpts
+}
+
+// ZoneAwareLBOpts holds the configuration options for zone-aware load balancing.
+type ZoneAwareLBOpts struct {
+	// Enabled enables zone-aware load balancing on clusters.
+	// When enabled, Envoy will prefer endpoints in the same zone.
+	Enabled bool
+
+	// MinClusterSize is the minimum number of endpoints in the upstream cluster
+	// for zone-aware routing to be enabled. If the cluster size is smaller than
+	// this value, zone-aware routing will not be performed.
+	// Envoy's default is 6.
+	MinClusterSize *uint64
+
+	// ForceLocalZoneMinSize specifies the minimum number of endpoints in the
+	// local zone for "force local zone" routing to be enabled.
+	// When nil, force local zone routing is disabled.
+	ForceLocalZoneMinSize *uint64
 }
 
 type EnvoyGenOpt struct {
 	XDSClusterName string
+	// ZoneAwareLB configures zone-aware load balancing on clusters.
+	ZoneAwareLB ZoneAwareLBOpts
 }
 
 func NewEnvoyGen(opt EnvoyGenOpt) *EnvoyGen {
 	return &EnvoyGen{
-		xdsClusterName: opt.XDSClusterName,
+		xdsClusterName:  opt.XDSClusterName,
+		zoneAwareLBOpts: opt.ZoneAwareLB,
 	}
 }
 

@@ -701,6 +701,11 @@ type Parameters struct {
 	// FeatureFlags defines toggle to enable new contour features.
 	FeatureFlags []string `yaml:"featureFlags,omitempty"`
 
+	// ZoneAwareRouting contains settings for Envoy's zone-aware
+	// load balancing. When enabled, Envoy will prefer routing traffic
+	// to endpoints in the same zone as itself.
+	ZoneAwareRouting ZoneAwareRoutingParameters `yaml:"zoneAwareRouting,omitempty"`
+
 	// OMEnforcedHealthListener holds configuration for an envoy listener
 	// that enforces the overload manager actions, like global downstream
 	// connection limits.
@@ -879,6 +884,31 @@ type MetricsServerParameters struct {
 // FeatureFlags defines the set of feature flags
 // to toggle new contour features.
 type FeatureFlags []string
+
+// ZoneAwareRoutingParameters holds settings for Envoy's zone-aware
+// load balancing.
+type ZoneAwareRoutingParameters struct {
+	// When set to true, Contour will read endpoint zone information from
+	// EndpointSlices and set the corresponding locality on Envoy endpoints.
+	// Envoy will then prefer endpoints in the same zone as itself.
+	// Requires Envoy to be configured with its locality (zone) information
+	// in the bootstrap configuration.
+	// Defaults to false.
+	Enabled bool `yaml:"enabled,omitempty"`
+
+	// MinClusterSize specifies the minimum number of endpoints in the upstream
+	// cluster for zone-aware routing to be enabled. If the cluster size is
+	// smaller than this value, zone-aware routing will not be performed.
+	// Defaults to 6.
+	MinClusterSize uint64 `yaml:"minClusterSize,omitempty"`
+
+	// ForceLocalZoneMinSize specifies the minimum number of endpoints in the
+	// local zone for "force local zone" routing to be enabled. When enabled
+	// and the local zone has at least this many endpoints, traffic will only
+	// be routed to local zone endpoints.
+	// When not set (0), force local zone routing is disabled.
+	ForceLocalZoneMinSize uint64 `yaml:"forceLocalZoneMinSize,omitempty"`
+}
 
 type OMEnforcedHealthListenerConfig struct {
 	// Address that the listener will bind to

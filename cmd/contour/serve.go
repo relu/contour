@@ -482,11 +482,30 @@ func (s *Server) doServe() error {
 
 	contourMetrics := metrics.NewMetrics(s.registry)
 
+	// Build zone-aware routing configuration.
+	zarConfig := xdscache_v3.ZoneAwareRoutingConfig{
+		Enabled: false,
+	}
+	zoneAwareLBOpts := envoy_v3.ZoneAwareLBOpts{
+		Enabled: false,
+	}
+	if contourConfiguration.ZoneAwareRouting != nil {
+		zarConfig.Enabled = ptr.Deref(contourConfiguration.ZoneAwareRouting.Enabled, false)
+		zoneAwareLBOpts.Enabled = zarConfig.Enabled
+		zoneAwareLBOpts.MinClusterSize = contourConfiguration.ZoneAwareRouting.MinClusterSize
+		zoneAwareLBOpts.ForceLocalZoneMinSize = contourConfiguration.ZoneAwareRouting.ForceLocalZoneMinSize
+	}
+	if zarConfig.Enabled {
+		s.log.Info("Zone-aware routing enabled - endpoints will be grouped by zone")
+		s.log.Info("Envoy will auto-discover zone from node's topology.kubernetes.io/zone label when NODE_NAME is set")
+	}
+
 	// Endpoints updates are handled directly by the EndpointSliceTranslator due to the high update volume.
-	endpointHandler := xdscache_v3.NewEndpointSliceTranslator(s.log.WithField("context", "endpointslicetranslator"))
+	endpointHandler := xdscache_v3.NewEndpointSliceTranslator(s.log.WithField("context", "endpointslicetranslator"), zarConfig)
 
 	envoyGen := envoy_v3.NewEnvoyGen(envoy_v3.EnvoyGenOpt{
 		XDSClusterName: envoy_v3.DefaultXDSClusterName,
+		ZoneAwareLB:    zoneAwareLBOpts,
 	})
 
 	resources := []xdscache.ResourceCache{

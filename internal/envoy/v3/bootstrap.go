@@ -163,6 +163,7 @@ func (e *EnvoyGen) bootstrap(c *envoy.BootstrapConfig) ([]bootstrapf, error) {
 
 func (e *EnvoyGen) bootstrapConfig(c *envoy.BootstrapConfig) *envoy_config_bootstrap_v3.Bootstrap {
 	bootstrap := &envoy_config_bootstrap_v3.Bootstrap{
+		Node: bootstrapNode(c),
 		LayeredRuntime: &envoy_config_bootstrap_v3.LayeredRuntime{
 			Layers: []*envoy_config_bootstrap_v3.RuntimeLayer{
 				{
@@ -490,4 +491,23 @@ func includeMaxConnectionMonitoring(bootstrap *envoy_config_bootstrap_v3.Bootstr
 			},
 		)
 	}
+}
+
+// bootstrapNode creates the Node configuration for Envoy's bootstrap.
+// If a zone is configured, it sets the locality so Envoy can perform
+// zone-aware load balancing.
+func bootstrapNode(c *envoy.BootstrapConfig) *envoy_config_core_v3.Node {
+	node := &envoy_config_core_v3.Node{
+		Id:      "contour",
+		Cluster: c.Namespace,
+	}
+
+	// Set locality if zone is configured for zone-aware load balancing
+	if c.Zone != "" {
+		node.Locality = &envoy_config_core_v3.Locality{
+			Zone: c.Zone,
+		}
+	}
+
+	return node
 }

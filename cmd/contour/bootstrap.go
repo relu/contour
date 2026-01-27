@@ -40,6 +40,7 @@ func registerBootstrap(app *kingpin.Application) (*kingpin.CmdClause, *envoy.Boo
 	bootstrap.Flag("xds-address", "xDS gRPC API address.").StringVar(&config.XDSAddress)
 	bootstrap.Flag("xds-port", "xDS gRPC API port.").IntVar(&config.XDSGRPCPort)
 	bootstrap.Flag("xds-resource-version", "The versions of the xDS resources to request from Contour.").Default("v3").StringVar((*string)(&config.XDSResourceVersion))
+	bootstrap.Flag("zone", "Availability zone for zone-aware load balancing. Auto-discovered from node topology label if NODE_NAME is set.").Envar("CONTOUR_ZONE").StringVar(&config.Zone)
 
 	return bootstrap, &config
 }

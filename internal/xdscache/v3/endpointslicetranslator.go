@@ -18,6 +18,7 @@ import (
 	"sort"
 	"sync"
 
+	envoy_config_core_v3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	envoy_config_endpoint_v3 "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	resource "github.com/envoyproxy/go-control-plane/pkg/resource/v3"
 	"github.com/sirupsen/logrus"
@@ -40,12 +41,45 @@ type (
 	LoadBalancingEndpoint = envoy_config_endpoint_v3.LbEndpoint
 )
 
+// ZoneAwareRoutingConfig holds zone-aware routing settings for the translator.
+type ZoneAwareRoutingConfig struct {
+	Enabled bool
+}
+
+// localityEndpointGroup groups endpoints by their zone.
+// Envoy will use its own locality to prefer endpoints in the same zone.
+type localityEndpointGroup struct {
+	zone      string
+	endpoints []*LoadBalancingEndpoint
+}
+
 // RecalculateEndpoints generates a slice of LoadBalancingEndpoint
 // resources by matching the given service port to the given discovery_v1.EndpointSlice.
 // endpointSliceMap may be nil, in which case, the result is also nil.
 func (c *EndpointSliceCache) RecalculateEndpoints(port, healthPort core_v1.ServicePort, endpointSliceMap map[string]*discovery_v1.EndpointSlice) []*LoadBalancingEndpoint {
+	// Delegate to recalculateEndpointsWithLocality with zone-aware routing disabled.
+	// This returns a single group with all endpoints.
+	groups := c.recalculateEndpointsWithLocality(port, healthPort, endpointSliceMap, ZoneAwareRoutingConfig{Enabled: false})
+	if len(groups) == 0 {
+		return nil
+	}
+	// Flatten all groups into a single slice (there should be only one group when ZAR is disabled).
 	var lb []*LoadBalancingEndpoint
-	uniqueEndpoints := make(map[string]struct{}, 0)
+	for _, group := range groups {
+		lb = append(lb, group.endpoints...)
+	}
+	return lb
+}
+
+// recalculateEndpointsWithLocality generates endpoint groups by zone.
+// When zone-aware routing is disabled, all endpoints are returned in a single group with no zone.
+// When zone-aware routing is enabled, endpoints are grouped by their zone (from endpoint.Zone).
+// Envoy will use its own configured locality to prefer endpoints in the same zone.
+func (c *EndpointSliceCache) recalculateEndpointsWithLocality(port, healthPort core_v1.ServicePort, endpointSliceMap map[string]*discovery_v1.EndpointSlice, zarConfig ZoneAwareRoutingConfig) []localityEndpointGroup {
+	// Map from zone -> endpoints in that zone
+	// When ZAR is disabled, all endpoints go to empty zone ""
+	zoneEndpoints := make(map[string][]*LoadBalancingEndpoint)
+	uniqueEndpoints := make(map[string]struct{})
 	var healthCheckPort int32
 
 	for _, endpointSlice := range endpointSliceMap {
@@ -59,6 +93,14 @@ func (c *EndpointSliceCache) RecalculateEndpoints(port, healthPort core_v1.Servi
 				continue
 			}
 
+			// Get the zone for this endpoint.
+			// When ZAR is disabled, all endpoints go to empty zone.
+			// When ZAR is enabled, use the endpoint's zone (empty string if not set).
+			zone := ""
+			if zarConfig.Enabled && endpoint.Zone != nil {
+				zone = *endpoint.Zone
+			}
+
 			// Range over each port. We want the resultant endpoints to be a
 			// a cartesian product MxN where M are the endpoints and N are the ports.
 			for _, endpointPort := range endpointSlice.Ports {
@@ -66,11 +108,9 @@ func (c *EndpointSliceCache) RecalculateEndpoints(port, healthPort core_v1.Servi
 				if endpointPort.Port == nil {
 					continue
 				}
-
 				if endpointPort.Protocol == nil {
 					continue
 				}
-
 				if *endpointPort.Protocol != core_v1.ProtocolTCP {
 					continue
 				}
@@ -102,21 +142,44 @@ func (c *EndpointSliceCache) RecalculateEndpoints(port, healthPort core_v1.Servi
 				// endpoints may be duplicated in different EndpointSlices.
 				// Hence, we need to ensure that the endpoints we add to []*LoadBalancingEndpoint aren't duplicated.
 				endpointKey := fmt.Sprintf("%s:%d", endpoint.Addresses[0], *endpointPort.Port)
-				if _, exists := uniqueEndpoints[endpointKey]; !exists {
-					lb = append(lb, envoy_v3.LBEndpoint(addr))
-					uniqueEndpoints[endpointKey] = struct{}{}
+				if _, exists := uniqueEndpoints[endpointKey]; exists {
+					continue
 				}
+				uniqueEndpoints[endpointKey] = struct{}{}
+
+				lbEndpoint := envoy_v3.LBEndpoint(addr)
+				zoneEndpoints[zone] = append(zoneEndpoints[zone], lbEndpoint)
 			}
 		}
 	}
 
+	// Apply health check config to all endpoints
 	if healthCheckPort > 0 {
-		for _, lbEndpoint := range lb {
-			lbEndpoint.GetEndpoint().HealthCheckConfig = envoy_v3.HealthCheckConfig(healthCheckPort)
+		for _, endpoints := range zoneEndpoints {
+			for _, lbEndpoint := range endpoints {
+				lbEndpoint.GetEndpoint().HealthCheckConfig = envoy_v3.HealthCheckConfig(healthCheckPort)
+			}
 		}
 	}
 
-	return lb
+	// Convert map to sorted slice of groups for deterministic output
+	var result []localityEndpointGroup
+	zones := make([]string, 0, len(zoneEndpoints))
+	for zone := range zoneEndpoints {
+		zones = append(zones, zone)
+	}
+	sort.Strings(zones)
+
+	for _, zone := range zones {
+		if len(zoneEndpoints[zone]) > 0 {
+			result = append(result, localityEndpointGroup{
+				zone:      zone,
+				endpoints: zoneEndpoints[zone],
+			})
+		}
+	}
+
+	return result
 }
 
 // EndpointSliceCache is a cache of EndpointSlice and ServiceCluster objects.
@@ -144,7 +207,7 @@ type EndpointSliceCache struct {
 // will be generated for every stale ServerCluster, however, if there
 // are no endpointSlices for the Services in the ServiceCluster, the
 // ClusterLoadAssignment will be empty.
-func (c *EndpointSliceCache) Recalculate() map[string]*envoy_config_endpoint_v3.ClusterLoadAssignment {
+func (c *EndpointSliceCache) Recalculate(zarConfig ZoneAwareRoutingConfig) map[string]*envoy_config_endpoint_v3.ClusterLoadAssignment {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -163,20 +226,27 @@ func (c *EndpointSliceCache) Recalculate() map[string]*envoy_config_endpoint_v3.
 		}
 
 		// Look up each service, and if we have endpointSlice for that service,
-		// attach them as a new LocalityEndpoints resource.
+		// attach them as LocalityEndpoints resources grouped by zone.
 		for _, w := range cluster.Services {
 			n := types.NamespacedName{Namespace: w.ServiceNamespace, Name: w.ServiceName}
-			if lb := c.RecalculateEndpoints(w.ServicePort, w.HealthPort, c.endpointSlices[n]); lb != nil {
-				// Append the new set of endpoints. Users are allowed to set the load
-				// balancing weight to 0, which we reflect to Envoy as nil in order to
-				// assign no load to that locality.
-				cla.Endpoints = append(
-					cla.Endpoints,
-					&LocalityEndpoints{
-						LbEndpoints:         lb,
+			groups := c.recalculateEndpointsWithLocality(w.ServicePort, w.HealthPort, c.endpointSlices[n], zarConfig)
+
+			for _, group := range groups {
+				if len(group.endpoints) > 0 {
+					localityLbEndpoints := &LocalityEndpoints{
+						LbEndpoints:         group.endpoints,
 						LoadBalancingWeight: protobuf.UInt32OrNil(w.Weight),
-					},
-				)
+					}
+
+					// Set locality if ZAR is enabled and we have zone info
+					if zarConfig.Enabled && group.zone != "" {
+						localityLbEndpoints.Locality = &envoy_config_core_v3.Locality{
+							Zone: group.zone,
+						}
+					}
+
+					cla.Endpoints = append(cla.Endpoints, localityLbEndpoints)
+				}
 			}
 		}
 
@@ -274,9 +344,10 @@ func (c *EndpointSliceCache) DeleteEndpointSlice(endpointSlice *discovery_v1.End
 }
 
 // NewEndpointSliceTranslator allocates a new endpointsSlice translator.
-func NewEndpointSliceTranslator(log logrus.FieldLogger) *EndpointSliceTranslator {
+func NewEndpointSliceTranslator(log logrus.FieldLogger, zarConfig ZoneAwareRoutingConfig) *EndpointSliceTranslator {
 	return &EndpointSliceTranslator{
 		FieldLogger: log,
+		zarConfig:   zarConfig,
 		entries:     map[string]*envoy_config_endpoint_v3.ClusterLoadAssignment{},
 		cache: EndpointSliceCache{
 			stale:          nil,
@@ -293,6 +364,9 @@ type EndpointSliceTranslator struct {
 	Observer contour.Observer
 
 	logrus.FieldLogger
+
+	// zarConfig holds zone-aware routing settings.
+	zarConfig ZoneAwareRoutingConfig
 
 	cache EndpointSliceCache
 
@@ -340,7 +414,7 @@ func (e *EndpointSliceTranslator) OnChange(root *dag.DAG) {
 	// the load assignments will be recalculated and we can just
 	// set the entries rather than merging them.
 	e.mu.Lock()
-	e.entries = e.cache.Recalculate()
+	e.entries = e.cache.Recalculate(e.zarConfig)
 	e.mu.Unlock()
 
 	if e.Observer != nil {
@@ -376,7 +450,7 @@ func (e *EndpointSliceTranslator) OnAdd(obj any, _ bool) {
 		}
 
 		e.WithField("endpointSlice", k8s.NamespacedNameOf(obj)).Debug("EndpointSlice is in use by a ServiceCluster, recalculating ClusterLoadAssignments")
-		e.Merge(e.cache.Recalculate())
+		e.Merge(e.cache.Recalculate(e.zarConfig))
 		if e.Observer != nil {
 			e.Observer.Refresh()
 		}
@@ -412,7 +486,7 @@ func (e *EndpointSliceTranslator) OnUpdate(oldObj, newObj any) {
 		}
 
 		e.WithField("endpointSlice", k8s.NamespacedNameOf(newObj)).Debug("EndpointSlice is in use by a ServiceCluster, recalculating ClusterLoadAssignments")
-		e.Merge(e.cache.Recalculate())
+		e.Merge(e.cache.Recalculate(e.zarConfig))
 		if e.Observer != nil {
 			e.Observer.Refresh()
 		}
@@ -429,7 +503,7 @@ func (e *EndpointSliceTranslator) OnDelete(obj any) {
 		}
 
 		e.WithField("endpointSlice", k8s.NamespacedNameOf(obj)).Debug("EndpointSlice was in use by a ServiceCluster, recalculating ClusterLoadAssignments")
-		e.Merge(e.cache.Recalculate())
+		e.Merge(e.cache.Recalculate(e.zarConfig))
 		if e.Observer != nil {
 			e.Observer.Refresh()
 		}

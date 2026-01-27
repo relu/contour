@@ -14,12 +14,15 @@
 package main
 
 import (
+	"context"
 	"os"
+	"time"
 
 	"github.com/alecthomas/kingpin/v2"
 	resource_v3 "github.com/envoyproxy/go-control-plane/pkg/resource/v3"
 	"github.com/sirupsen/logrus"
 	"go.uber.org/automaxprocs/maxprocs"
+	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/projectcontour/contour/internal/build"
 	"github.com/projectcontour/contour/internal/envoy"
@@ -107,6 +110,21 @@ func main() {
 		if err := envoy.ValidConnectionLimit(bootstrapCtx.GlobalDownstreamConnectionLimit); err != nil {
 			log.WithField("flag", "--overload-downstream-max-conn").WithError(err).Fatal("failed to parse bootstrap args")
 		}
+		// If zone is not set, try to discover it from the node's topology label
+		if bootstrapCtx.Zone == "" {
+			if nodeName := os.Getenv("NODE_NAME"); nodeName != "" {
+				if zone, err := getNodeZone(nodeName); err != nil {
+					log.WithError(err).Debug("Failed to get zone from node, zone-aware load balancing will not work")
+				} else if zone != "" {
+					bootstrapCtx.Zone = zone
+					log.WithField("zone", zone).Info("Discovered zone from node topology label")
+				}
+			}
+		}
+		if bootstrapCtx.Zone == "" {
+			log.Debug("No zone discovered for Envoy. Zone-aware load balancing will not work. " +
+				"Ensure NODE_NAME environment variable is set and Envoy ServiceAccount has RBAC to read nodes.")
+		}
 		envoyGen := envoy_v3.NewEnvoyGen(envoy_v3.EnvoyGenOpt{
 			XDSClusterName: envoy_v3.DefaultXDSClusterName,
 		})
@@ -193,4 +211,22 @@ func main() {
 		app.Usage(args)
 		os.Exit(2)
 	}
+}
+
+// getNodeZone retrieves the zone from the node's topology.kubernetes.io/zone label.
+func getNodeZone(nodeName string) (string, error) {
+	client, err := k8s.NewCoreClient("", true)
+	if err != nil {
+		return "", err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	node, err := client.CoreV1().Nodes().Get(ctx, nodeName, meta_v1.GetOptions{})
+	if err != nil {
+		return "", err
+	}
+
+	return node.Labels["topology.kubernetes.io/zone"], nil
 }

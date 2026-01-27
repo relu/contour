@@ -2500,6 +2500,23 @@ list of hash policies is empty after validation, the load balancing
 strategy will fall back to the default <code>RoundRobin</code>.</p>
 </td>
 </tr>
+<tr>
+<td style="white-space:nowrap">
+<code>zoneAwareLB</code>
+<br>
+<em>
+<a href="#projectcontour.io/v1.ZoneAwareLBPolicy">
+ZoneAwareLBPolicy
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>ZoneAwareLB configures zone-aware load balancing for this route.
+When enabled, Envoy will prefer to route traffic to endpoints
+in the same zone as the Envoy instance.</p>
+</td>
+</tr>
 </tbody>
 </table>
 <h3 id="projectcontour.io/v1.LocalRateLimitPolicy">LocalRateLimitPolicy
@@ -4071,6 +4088,24 @@ SlowStartPolicy
 <p>Slow start will gradually increase amount of traffic to a newly added endpoint.</p>
 </td>
 </tr>
+<tr>
+<td style="white-space:nowrap">
+<code>zoneAwareLB</code>
+<br>
+<em>
+<a href="#projectcontour.io/v1.ZoneAwareLBPolicy">
+ZoneAwareLBPolicy
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>ZoneAwareLB configures zone-aware load balancing for this service.
+When enabled, Envoy will prefer to route traffic to endpoints
+in the same zone as the Envoy instance.
+This setting takes precedence over route-level ZoneAwareLB settings.</p>
+</td>
+</tr>
 </tbody>
 </table>
 <h3 id="projectcontour.io/v1.SlowStartPolicy">SlowStartPolicy
@@ -4912,6 +4947,40 @@ The rules defined here may be overridden in a Route.</p>
 </tr>
 </tbody>
 </table>
+<h3 id="projectcontour.io/v1.ZoneAwareLBPolicy">ZoneAwareLBPolicy
+</h3>
+<p>
+(<em>Appears on:</em>
+<a href="#projectcontour.io/v1.LoadBalancerPolicy">LoadBalancerPolicy</a>, 
+<a href="#projectcontour.io/v1.Service">Service</a>)
+</p>
+<p>
+<p>ZoneAwareLBPolicy configures zone-aware load balancing.</p>
+</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="white-space:nowrap">
+<code>disabled</code>
+<br>
+<em>
+bool
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Disabled allows disabling zone-aware load balancing for this
+route/service when it is enabled globally at the Contour level.</p>
+</td>
+</tr>
+</tbody>
+</table>
 <hr/>
 <h2 id="projectcontour.io/v1alpha1">projectcontour.io/v1alpha1</h2>
 <p>
@@ -5196,6 +5265,23 @@ FeatureFlags
 </td>
 <td>
 <p>FeatureFlags defines toggle to enable new contour features.</p>
+</td>
+</tr>
+<tr>
+<td style="white-space:nowrap">
+<code>zoneAwareRouting</code>
+<br>
+<em>
+<a href="#projectcontour.io/v1alpha1.ZoneAwareRoutingConfig">
+ZoneAwareRoutingConfig
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>ZoneAwareRouting contains settings for Envoy&rsquo;s zone-aware
+load balancing. When enabled, Envoy will prefer routing traffic
+to endpoints in the same zone as itself.</p>
 </td>
 </tr>
 </table>
@@ -6116,6 +6202,23 @@ FeatureFlags
 </td>
 <td>
 <p>FeatureFlags defines toggle to enable new contour features.</p>
+</td>
+</tr>
+<tr>
+<td style="white-space:nowrap">
+<code>zoneAwareRouting</code>
+<br>
+<em>
+<a href="#projectcontour.io/v1alpha1.ZoneAwareRoutingConfig">
+ZoneAwareRoutingConfig
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>ZoneAwareRouting contains settings for Envoy&rsquo;s zone-aware
+load balancing. When enabled, Envoy will prefer routing traffic
+to endpoints in the same zone as itself.</p>
 </td>
 </tr>
 </tbody>
@@ -9244,6 +9347,77 @@ TLS
 <em>(Optional)</em>
 <p>TLS holds TLS file config details.</p>
 <p>Contour&rsquo;s default is { caFile: &ldquo;/certs/ca.crt&rdquo;, certFile: &ldquo;/certs/tls.cert&rdquo;, keyFile: &ldquo;/certs/tls.key&rdquo;, insecure: false }.</p>
+</td>
+</tr>
+</tbody>
+</table>
+<h3 id="projectcontour.io/v1alpha1.ZoneAwareRoutingConfig">ZoneAwareRoutingConfig
+</h3>
+<p>
+(<em>Appears on:</em>
+<a href="#projectcontour.io/v1alpha1.ContourConfigurationSpec">ContourConfigurationSpec</a>)
+</p>
+<p>
+<p>ZoneAwareRoutingConfig holds the configuration for zone-aware load balancing.</p>
+</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="white-space:nowrap">
+<code>enabled</code>
+<br>
+<em>
+bool
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>When set to true, Contour will read endpoint zone information from
+EndpointSlices and set the corresponding locality on Envoy endpoints.
+Envoy will then prefer endpoints in the same zone as itself.
+Requires Envoy to be configured with its locality (zone) information
+in the bootstrap configuration.
+Defaults to false.</p>
+</td>
+</tr>
+<tr>
+<td style="white-space:nowrap">
+<code>minClusterSize</code>
+<br>
+<em>
+uint64
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>MinClusterSize specifies the minimum number of endpoints in the upstream
+cluster for zone-aware routing to be enabled. If the cluster size is
+smaller than this value, zone-aware routing will not be performed.
+Defaults to 6.</p>
+</td>
+</tr>
+<tr>
+<td style="white-space:nowrap">
+<code>forceLocalZoneMinSize</code>
+<br>
+<em>
+uint64
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>ForceLocalZoneMinSize specifies the minimum number of endpoints in the
+local zone for &ldquo;force local zone&rdquo; routing to be enabled. When enabled
+and the local zone has at least this many endpoints, traffic will only
+be routed to local zone endpoints. If the local zone has fewer endpoints,
+traffic will spill over to other zones.
+When not set, force local zone routing is disabled.</p>
 </td>
 </tr>
 </tbody>

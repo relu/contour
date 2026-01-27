@@ -1035,6 +1035,15 @@ func (p *HTTPProxyProcessor) computeRoutes(
 				}
 			}
 
+			// Determine if zone-aware LB should be disabled for this cluster.
+			// Priority: service spec setting > route load balancer policy > k8s service annotation
+			zoneAwareLBDisabled := s.ZoneAwareLBDisabled
+			if service.ZoneAwareLB != nil && service.ZoneAwareLB.Disabled {
+				zoneAwareLBDisabled = true
+			} else if route.LoadBalancerPolicy != nil && route.LoadBalancerPolicy.ZoneAwareLB != nil && route.LoadBalancerPolicy.ZoneAwareLB.Disabled {
+				zoneAwareLBDisabled = true
+			}
+
 			c := &Cluster{
 				Upstream:                      s,
 				LoadBalancerPolicy:            lbPolicy,
@@ -1053,6 +1062,7 @@ func (p *HTTPProxyProcessor) computeRoutes(
 				MaxRequestsPerConnection:      p.MaxRequestsPerConnection,
 				PerConnectionBufferLimitBytes: p.PerConnectionBufferLimitBytes,
 				UpstreamTLS:                   p.UpstreamTLS,
+				ZoneAwareLBDisabled:           zoneAwareLBDisabled,
 			}
 			if service.Mirror && len(r.MirrorPolicies) > 0 {
 				validCond.AddError(contour_v1.ConditionTypeServiceError, "OnlyOneMirror",
@@ -1249,6 +1259,15 @@ func (p *HTTPProxyProcessor) processHTTPProxyTCPProxy(validCond *contour_v1.Deta
 				}
 			}
 
+			// Determine if zone-aware LB should be disabled for this cluster.
+			// Priority: service spec setting > tcp proxy load balancer policy > k8s service annotation
+			zoneAwareLBDisabled := s.ZoneAwareLBDisabled
+			if service.ZoneAwareLB != nil && service.ZoneAwareLB.Disabled {
+				zoneAwareLBDisabled = true
+			} else if tcpproxy.LoadBalancerPolicy != nil && tcpproxy.LoadBalancerPolicy.ZoneAwareLB != nil && tcpproxy.LoadBalancerPolicy.ZoneAwareLB.Disabled {
+				zoneAwareLBDisabled = true
+			}
+
 			proxy.Clusters = append(proxy.Clusters, &Cluster{
 				Upstream:             s,
 				Weight:               uint32(service.Weight), //nolint:gosec // disable G115
@@ -1260,6 +1279,7 @@ func (p *HTTPProxyProcessor) processHTTPProxyTCPProxy(validCond *contour_v1.Deta
 				UpstreamTLS:          p.UpstreamTLS,
 				UpstreamValidation:   uv,
 				ClientCertificate:    clientCertSecret,
+				ZoneAwareLBDisabled:  zoneAwareLBDisabled,
 			})
 		}
 

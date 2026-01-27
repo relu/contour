@@ -70,6 +70,7 @@ var annotationsByKind = map[string]map[string]struct{}{
 		"projectcontour.io/upstream-protocol.h2":     {},
 		"projectcontour.io/upstream-protocol.h2c":    {},
 		"projectcontour.io/upstream-protocol.tls":    {},
+		"projectcontour.io/zone-aware-lb-disabled":   {},
 	},
 	"HTTPProxy": {
 		"kubernetes.io/ingress.class":     {},
@@ -270,4 +271,13 @@ func MaxRetries(o meta_v1.Object) uint32 {
 // '0' is returned if the annotation is absent or unparsable.
 func PerHostMaxConnections(o meta_v1.Object) uint32 {
 	return parseUInt32(ContourAnnotation(o, "per-host-max-connections"))
+}
+
+// ZoneAwareLBDisabled returns true if zone-aware load balancing should be
+// disabled for this service. This is determined by the annotation:
+// projectcontour.io/zone-aware-lb-disabled
+//
+// 'false' is returned if the annotation is absent.
+func ZoneAwareLBDisabled(o meta_v1.Object) bool {
+	return ContourAnnotation(o, "zone-aware-lb-disabled") == "true"
 }

@@ -34,10 +34,10 @@ import (
 	"github.com/projectcontour/contour/internal/xds"
 )
 
-func clusterDefaults() *envoy_config_cluster_v3.Cluster {
+func (e *EnvoyGen) clusterDefaults() *envoy_config_cluster_v3.Cluster {
 	return &envoy_config_cluster_v3.Cluster{
 		ConnectTimeout: durationpb.New(2 * time.Second),
-		CommonLbConfig: ClusterCommonLBConfig(),
+		CommonLbConfig: ClusterCommonLBConfig(e.zoneAwareLBOpts),
 		LbPolicy:       lbPolicy(dag.LoadBalancerPolicyRoundRobin),
 	}
 }
@@ -45,7 +45,12 @@ func clusterDefaults() *envoy_config_cluster_v3.Cluster {
 // Cluster creates new envoy_config_cluster_v3.Cluster from dag.Cluster.
 func (e *EnvoyGen) Cluster(c *dag.Cluster) *envoy_config_cluster_v3.Cluster {
 	service := c.Upstream
-	cluster := clusterDefaults()
+	cluster := e.clusterDefaults()
+
+	// If zone-aware LB is disabled for this specific cluster, override the CommonLbConfig
+	if c.ZoneAwareLBDisabled {
+		cluster.CommonLbConfig = ClusterCommonLBConfig(ZoneAwareLBOpts{Enabled: false})
+	}
 
 	cluster.Name = envoy.Clustername(c)
 	cluster.AltStatName = envoy.AltStatName(service)
@@ -137,7 +142,7 @@ func (e *EnvoyGen) Cluster(c *dag.Cluster) *envoy_config_cluster_v3.Cluster {
 
 // ExtensionCluster builds a envoy_config_cluster_v3.Cluster struct for the given extension service.
 func (e *EnvoyGen) ExtensionCluster(ext *dag.ExtensionCluster) *envoy_config_cluster_v3.Cluster {
-	cluster := clusterDefaults()
+	cluster := e.clusterDefaults()
 
 	// The Envoy cluster name has already been set.
 	cluster.Name = ext.Name
@@ -209,7 +214,7 @@ func applyCircuitBreakers(cluster *envoy_config_cluster_v3.Cluster, settings dag
 
 // DNSNameCluster builds a envoy_config_cluster_v3.Cluster for the given *dag.DNSNameCluster.
 func (e *EnvoyGen) DNSNameCluster(c *dag.DNSNameCluster) *envoy_config_cluster_v3.Cluster {
-	cluster := clusterDefaults()
+	cluster := e.clusterDefaults()
 
 	cluster.Name = envoy.DNSNameClusterName(c)
 	cluster.DnsLookupFamily = parseDNSLookupFamily(c.DNSLookupFamily)
@@ -271,12 +276,28 @@ func edshealthcheck(c *dag.Cluster) []*envoy_config_core_v3.HealthCheck {
 }
 
 // ClusterCommonLBConfig creates a *envoy_config_cluster_v3.Cluster_CommonLbConfig with HealthyPanicThreshold disabled.
-func ClusterCommonLBConfig() *envoy_config_cluster_v3.Cluster_CommonLbConfig {
-	return &envoy_config_cluster_v3.Cluster_CommonLbConfig{
+// If zone-aware LB is enabled, zone-aware load balancing is configured so Envoy prefers endpoints in its own zone.
+func ClusterCommonLBConfig(opts ZoneAwareLBOpts) *envoy_config_cluster_v3.Cluster_CommonLbConfig {
+	config := &envoy_config_cluster_v3.Cluster_CommonLbConfig{
 		HealthyPanicThreshold: &envoy_type_v3.Percent{ // Disable HealthyPanicThreshold
 			Value: 0,
 		},
 	}
+
+	if opts.Enabled {
+		zoneAwareLbConfig := &envoy_config_cluster_v3.Cluster_CommonLbConfig_ZoneAwareLbConfig{}
+
+		// Set min_cluster_size if specified (Envoy's default is 6)
+		if opts.MinClusterSize != nil {
+			zoneAwareLbConfig.MinClusterSize = wrapperspb.UInt64(*opts.MinClusterSize)
+		}
+
+		config.LocalityConfigSpecifier = &envoy_config_cluster_v3.Cluster_CommonLbConfig_ZoneAwareLbConfig_{
+			ZoneAwareLbConfig: zoneAwareLbConfig,
+		}
+	}
+
+	return config
 }
 
 // ClusterDiscoveryType returns the type of a ClusterDiscovery as a Cluster_type.

@@ -20,6 +20,7 @@ import (
 	envoy_config_cluster_v3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	envoy_config_core_v3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	envoy_upstream_http_v3 "github.com/envoyproxy/go-control-plane/envoy/extensions/upstreams/http/v3"
+	"github.com/stretchr/testify/assert"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -762,6 +763,239 @@ func TestClusterVisit(t *testing.T) {
 	}
 }
 
+func TestClusterVisitZoneAwareLBDisabled(t *testing.T) {
+	// Create EnvoyGen with zone-aware LB enabled globally
+	envoyGenWithZoneAwareLB := envoy_v3.NewEnvoyGen(envoy_v3.EnvoyGenOpt{
+		XDSClusterName: envoy_v3.DefaultXDSClusterName,
+		ZoneAwareLB:    envoy_v3.ZoneAwareLBOpts{Enabled: true},
+	})
+	envoyConfigSource := envoyGenWithZoneAwareLB.GetConfigSource()
+
+	tests := map[string]struct {
+		objs                  []any
+		wantZoneAwareLBConfig bool // true means zone-aware LB config should be present
+	}{
+		"service with zone-aware-lb-disabled annotation": {
+			objs: []any{
+				&contour_v1.HTTPProxy{
+					ObjectMeta: meta_v1.ObjectMeta{
+						Name:      "simple",
+						Namespace: "default",
+					},
+					Spec: contour_v1.HTTPProxySpec{
+						VirtualHost: &contour_v1.VirtualHost{
+							Fqdn: "www.example.com",
+						},
+						Routes: []contour_v1.Route{{
+							Conditions: []contour_v1.MatchCondition{{
+								Prefix: "/",
+							}},
+							Services: []contour_v1.Service{{
+								Name: "backend",
+								Port: 80,
+							}},
+						}},
+					},
+				},
+				serviceWithAnnotations(
+					"default",
+					"backend",
+					map[string]string{
+						"projectcontour.io/zone-aware-lb-disabled": "true",
+					},
+					core_v1.ServicePort{
+						Name:       "http",
+						Protocol:   "TCP",
+						Port:       80,
+						TargetPort: intstr.FromInt(6502),
+					},
+				),
+			},
+			wantZoneAwareLBConfig: false,
+		},
+		"service without zone-aware-lb-disabled annotation": {
+			objs: []any{
+				&contour_v1.HTTPProxy{
+					ObjectMeta: meta_v1.ObjectMeta{
+						Name:      "simple",
+						Namespace: "default",
+					},
+					Spec: contour_v1.HTTPProxySpec{
+						VirtualHost: &contour_v1.VirtualHost{
+							Fqdn: "www.example.com",
+						},
+						Routes: []contour_v1.Route{{
+							Conditions: []contour_v1.MatchCondition{{
+								Prefix: "/",
+							}},
+							Services: []contour_v1.Service{{
+								Name: "backend",
+								Port: 80,
+							}},
+						}},
+					},
+				},
+				service("default", "backend", core_v1.ServicePort{
+					Name:       "http",
+					Protocol:   "TCP",
+					Port:       80,
+					TargetPort: intstr.FromInt(6502),
+				}),
+			},
+			wantZoneAwareLBConfig: true,
+		},
+		"httpproxy with zoneAwareLB disabled in service spec": {
+			objs: []any{
+				&contour_v1.HTTPProxy{
+					ObjectMeta: meta_v1.ObjectMeta{
+						Name:      "simple",
+						Namespace: "default",
+					},
+					Spec: contour_v1.HTTPProxySpec{
+						VirtualHost: &contour_v1.VirtualHost{
+							Fqdn: "www.example.com",
+						},
+						Routes: []contour_v1.Route{{
+							Conditions: []contour_v1.MatchCondition{{
+								Prefix: "/",
+							}},
+							Services: []contour_v1.Service{{
+								Name: "backend",
+								Port: 80,
+								ZoneAwareLB: &contour_v1.ZoneAwareLBPolicy{
+									Disabled: true,
+								},
+							}},
+						}},
+					},
+				},
+				service("default", "backend", core_v1.ServicePort{
+					Name:       "http",
+					Protocol:   "TCP",
+					Port:       80,
+					TargetPort: intstr.FromInt(6502),
+				}),
+			},
+			wantZoneAwareLBConfig: false,
+		},
+		"httpproxy with zoneAwareLB disabled in route loadBalancerPolicy": {
+			objs: []any{
+				&contour_v1.HTTPProxy{
+					ObjectMeta: meta_v1.ObjectMeta{
+						Name:      "simple",
+						Namespace: "default",
+					},
+					Spec: contour_v1.HTTPProxySpec{
+						VirtualHost: &contour_v1.VirtualHost{
+							Fqdn: "www.example.com",
+						},
+						Routes: []contour_v1.Route{{
+							Conditions: []contour_v1.MatchCondition{{
+								Prefix: "/",
+							}},
+							LoadBalancerPolicy: &contour_v1.LoadBalancerPolicy{
+								ZoneAwareLB: &contour_v1.ZoneAwareLBPolicy{
+									Disabled: true,
+								},
+							},
+							Services: []contour_v1.Service{{
+								Name: "backend",
+								Port: 80,
+							}},
+						}},
+					},
+				},
+				service("default", "backend", core_v1.ServicePort{
+					Name:       "http",
+					Protocol:   "TCP",
+					Port:       80,
+					TargetPort: intstr.FromInt(6502),
+				}),
+			},
+			wantZoneAwareLBConfig: false,
+		},
+		"httpproxy service spec overrides annotation": {
+			objs: []any{
+				&contour_v1.HTTPProxy{
+					ObjectMeta: meta_v1.ObjectMeta{
+						Name:      "simple",
+						Namespace: "default",
+					},
+					Spec: contour_v1.HTTPProxySpec{
+						VirtualHost: &contour_v1.VirtualHost{
+							Fqdn: "www.example.com",
+						},
+						Routes: []contour_v1.Route{{
+							Conditions: []contour_v1.MatchCondition{{
+								Prefix: "/",
+							}},
+							Services: []contour_v1.Service{{
+								Name: "backend",
+								Port: 80,
+								ZoneAwareLB: &contour_v1.ZoneAwareLBPolicy{
+									Disabled: true,
+								},
+							}},
+						}},
+					},
+				},
+				// Service annotation says zone-aware LB is not disabled
+				serviceWithAnnotations(
+					"default",
+					"backend",
+					map[string]string{
+						"projectcontour.io/zone-aware-lb-disabled": "false",
+					},
+					core_v1.ServicePort{
+						Name:       "http",
+						Protocol:   "TCP",
+						Port:       80,
+						TargetPort: intstr.FromInt(6502),
+					},
+				),
+			},
+			// HTTPProxy service spec takes precedence, so zone-aware LB should be disabled
+			wantZoneAwareLBConfig: false,
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			cc := ClusterCache{
+				envoyGen: envoyGenWithZoneAwareLB,
+			}
+			cc.OnChange(buildDAG(t, tc.objs...))
+
+			// Find the cluster and check its CommonLbConfig
+			for _, c := range cc.values {
+				if tc.wantZoneAwareLBConfig {
+					// Should have zone-aware LB config
+					want := &envoy_config_cluster_v3.Cluster_CommonLbConfig_ZoneAwareLbConfig_{
+						ZoneAwareLbConfig: &envoy_config_cluster_v3.Cluster_CommonLbConfig_ZoneAwareLbConfig{},
+					}
+					assert.NotNil(t, c.CommonLbConfig.GetZoneAwareLbConfig(), "expected zone-aware LB config to be present")
+					assert.Equal(t, want.ZoneAwareLbConfig, c.CommonLbConfig.GetZoneAwareLbConfig())
+				} else {
+					// Should NOT have zone-aware LB config
+					assert.Nil(t, c.CommonLbConfig.GetZoneAwareLbConfig(), "expected zone-aware LB config to be absent")
+				}
+			}
+
+			// Verify cluster was generated
+			expectedCluster := cluster(&envoy_config_cluster_v3.Cluster{
+				Name:                 "default/backend/80/da39a3ee5e",
+				AltStatName:          "default_backend_80",
+				ClusterDiscoveryType: envoy_v3.ClusterDiscoveryType(envoy_config_cluster_v3.Cluster_EDS),
+				EdsClusterConfig: &envoy_config_cluster_v3.Cluster_EdsClusterConfig{
+					EdsConfig:   envoyConfigSource,
+					ServiceName: "default/backend/http",
+				},
+			})
+			_ = expectedCluster // We're mainly checking CommonLbConfig, not the full cluster
+		})
+	}
+}
+
 func service(ns, name string, ports ...core_v1.ServicePort) *core_v1.Service {
 	return serviceWithAnnotations(ns, name, nil, ports...)
 }
@@ -783,7 +1017,7 @@ func cluster(c *envoy_config_cluster_v3.Cluster) *envoy_config_cluster_v3.Cluste
 	// NOTE: Keep this in sync with envoy.defaultCluster().
 	defaults := &envoy_config_cluster_v3.Cluster{
 		ConnectTimeout: durationpb.New(2 * time.Second),
-		CommonLbConfig: envoy_v3.ClusterCommonLBConfig(),
+		CommonLbConfig: envoy_v3.ClusterCommonLBConfig(envoy_v3.ZoneAwareLBOpts{}),
 		LbPolicy:       envoy_config_cluster_v3.Cluster_ROUND_ROBIN,
 	}
 

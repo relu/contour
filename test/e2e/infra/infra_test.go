@@ -23,6 +23,7 @@ import (
 	"github.com/onsi/gomega/gexec"
 	"github.com/stretchr/testify/require"
 	core_v1 "k8s.io/api/core/v1"
+	"k8s.io/utils/ptr"
 
 	contour_v1alpha1 "github.com/projectcontour/contour/apis/projectcontour/v1alpha1"
 	"github.com/projectcontour/contour/pkg/config"
@@ -152,4 +153,15 @@ var _ = Describe("Infra", func() {
 	f.Test(testAdminInterface)
 
 	f.NamespacedTest("simple-endpoint-slice", testSimpleEndpointSlice)
+
+	Context("when zone-aware routing is enabled", func() {
+		BeforeEach(func() {
+			contourConfig.ZoneAwareRouting.Enabled = true
+
+			contourConfiguration.Spec.ZoneAwareRouting = &contour_v1alpha1.ZoneAwareRoutingConfig{
+				Enabled: ptr.To(true),
+			}
+		})
+		f.NamespacedTest("zar-endpoint-slice", testZoneAwareRouting)
+	})
 })

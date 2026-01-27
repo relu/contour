@@ -626,6 +626,9 @@ func (ctx *serveContext) convertToContourConfigurationSpec() contour_v1alpha1.Co
 		Metrics:                     &contourMetrics,
 		Tracing:                     tracingConfig,
 		FeatureFlags:                ctx.Config.FeatureFlags,
+		ZoneAwareRouting: &contour_v1alpha1.ZoneAwareRoutingConfig{
+			Enabled: &ctx.Config.ZoneAwareRouting.Enabled,
+		},
 	}
 
 	contourConfiguration.XDSServer = &contour_v1alpha1.XDSServerConfig{

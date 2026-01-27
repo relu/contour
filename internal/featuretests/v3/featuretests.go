@@ -83,7 +83,7 @@ func setup(t *testing.T, opts ...any) (ResourceEventHandlerWrapper, *Contour, fu
 	log := fixture.NewTestLogger(t)
 	log.SetLevel(logrus.DebugLevel)
 
-	et := xdscache_v3.NewEndpointSliceTranslator(log)
+	et := xdscache_v3.NewEndpointSliceTranslator(log, xdscache_v3.ZoneAwareRoutingConfig{})
 
 	conf := xdscache_v3.ListenerConfig{}
 	for _, opt := range opts {

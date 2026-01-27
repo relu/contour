@@ -87,11 +87,47 @@ type ContourConfigurationSpec struct {
 
 	// FeatureFlags defines toggle to enable new contour features.
 	FeatureFlags FeatureFlags `json:"featureFlags,omitempty"`
+
+	// ZoneAwareRouting contains settings for Envoy's zone-aware
+	// load balancing. When enabled, Envoy will prefer routing traffic
+	// to endpoints in the same zone as itself.
+	// +optional
+	ZoneAwareRouting *ZoneAwareRoutingConfig `json:"zoneAwareRouting,omitempty"`
 }
 
 // FeatureFlags defines the set of feature flags
 // to toggle new contour features.
 type FeatureFlags []string
+
+// ZoneAwareRoutingConfig holds the configuration for zone-aware load balancing.
+type ZoneAwareRoutingConfig struct {
+	// When set to true, Contour will read endpoint zone information from
+	// EndpointSlices and set the corresponding locality on Envoy endpoints.
+	// Envoy will then prefer endpoints in the same zone as itself.
+	// Requires Envoy to be configured with its locality (zone) information
+	// in the bootstrap configuration.
+	// Defaults to false.
+	// +optional
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// MinClusterSize specifies the minimum number of endpoints in the upstream
+	// cluster for zone-aware routing to be enabled. If the cluster size is
+	// smaller than this value, zone-aware routing will not be performed.
+	// Defaults to 6.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	MinClusterSize *uint64 `json:"minClusterSize,omitempty"`
+
+	// ForceLocalZoneMinSize specifies the minimum number of endpoints in the
+	// local zone for "force local zone" routing to be enabled. When enabled
+	// and the local zone has at least this many endpoints, traffic will only
+	// be routed to local zone endpoints. If the local zone has fewer endpoints,
+	// traffic will spill over to other zones.
+	// When not set, force local zone routing is disabled.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	ForceLocalZoneMinSize *uint64 `json:"forceLocalZoneMinSize,omitempty"`
+}
 
 type CircuitBreakers struct {
 	// The maximum number of connections that a single Envoy instance allows to the Kubernetes Service; defaults to 1024.

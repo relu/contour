@@ -975,6 +975,10 @@ type Service struct {
 
 	// ExternalName is an optional field referencing a dns entry for Service type "ExternalName"
 	ExternalName string
+
+	// ZoneAwareLBDisabled indicates whether zone-aware load balancing
+	// should be disabled for this service (via annotation).
+	ZoneAwareLBDisabled bool
 }
 
 // Cluster holds the connection specific parameters that apply to
@@ -1050,6 +1054,10 @@ type Cluster struct {
 
 	// UpstreamTLS contains the TLS version and cipher suite configurations for upstream connections
 	UpstreamTLS *UpstreamTLS
+
+	// ZoneAwareLBDisabled disables zone-aware load balancing for this cluster
+	// even when it's enabled globally.
+	ZoneAwareLBDisabled bool
 }
 
 // WeightedService represents the load balancing weight of a

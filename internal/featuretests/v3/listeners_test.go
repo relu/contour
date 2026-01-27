@@ -43,7 +43,7 @@ import (
 
 func customAdminPort(t *testing.T, port int) []xdscache.ResourceCache {
 	log := fixture.NewTestLogger(t)
-	et := xdscache_v3.NewEndpointSliceTranslator(log)
+	et := xdscache_v3.NewEndpointSliceTranslator(log, xdscache_v3.ZoneAwareRoutingConfig{})
 	conf := xdscache_v3.ListenerConfig{}
 	return []xdscache.ResourceCache{
 		xdscache_v3.NewListenerCache(

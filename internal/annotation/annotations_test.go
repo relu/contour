@@ -544,3 +544,76 @@ func kindOf(obj any) string {
 		return ""
 	}
 }
+
+func TestZoneAwareLBDisabled(t *testing.T) {
+	tests := map[string]struct {
+		svc  *core_v1.Service
+		want bool
+	}{
+		"no annotations": {
+			svc: &core_v1.Service{
+				ObjectMeta: meta_v1.ObjectMeta{
+					Annotations: map[string]string{},
+				},
+			},
+			want: false,
+		},
+		"annotation absent": {
+			svc: &core_v1.Service{
+				ObjectMeta: meta_v1.ObjectMeta{
+					Annotations: map[string]string{
+						"projectcontour.io/max-connections": "100",
+					},
+				},
+			},
+			want: false,
+		},
+		"annotation set to true": {
+			svc: &core_v1.Service{
+				ObjectMeta: meta_v1.ObjectMeta{
+					Annotations: map[string]string{
+						"projectcontour.io/zone-aware-lb-disabled": "true",
+					},
+				},
+			},
+			want: true,
+		},
+		"annotation set to false": {
+			svc: &core_v1.Service{
+				ObjectMeta: meta_v1.ObjectMeta{
+					Annotations: map[string]string{
+						"projectcontour.io/zone-aware-lb-disabled": "false",
+					},
+				},
+			},
+			want: false,
+		},
+		"annotation set to empty string": {
+			svc: &core_v1.Service{
+				ObjectMeta: meta_v1.ObjectMeta{
+					Annotations: map[string]string{
+						"projectcontour.io/zone-aware-lb-disabled": "",
+					},
+				},
+			},
+			want: false,
+		},
+		"annotation set to invalid value": {
+			svc: &core_v1.Service{
+				ObjectMeta: meta_v1.ObjectMeta{
+					Annotations: map[string]string{
+						"projectcontour.io/zone-aware-lb-disabled": "yes",
+					},
+				},
+			},
+			want: false,
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := ZoneAwareLBDisabled(tc.svc)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}

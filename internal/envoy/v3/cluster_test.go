@@ -869,7 +869,7 @@ func TestCluster(t *testing.T) {
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			got := envoyGen.Cluster(tc.cluster)
-			want := clusterDefaults()
+			want := envoyGen.clusterDefaults()
 
 			proto.Merge(want, tc.want)
 
@@ -1061,7 +1061,7 @@ func TestDNSNameCluster(t *testing.T) {
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			got := envoyGen.DNSNameCluster(tc.cluster)
-			want := clusterDefaults()
+			want := envoyGen.clusterDefaults()
 
 			proto.Merge(want, tc.want)
 
@@ -1232,13 +1232,133 @@ func TestLBPolicy(t *testing.T) {
 }
 
 func TestClusterCommonLBConfig(t *testing.T) {
-	got := ClusterCommonLBConfig()
-	want := &envoy_config_cluster_v3.Cluster_CommonLbConfig{
-		HealthyPanicThreshold: &envoy_type_v3.Percent{ // Disable HealthyPanicThreshold
-			Value: 0,
+	t.Run("without zone-aware LB", func(t *testing.T) {
+		got := ClusterCommonLBConfig(ZoneAwareLBOpts{})
+		want := &envoy_config_cluster_v3.Cluster_CommonLbConfig{
+			HealthyPanicThreshold: &envoy_type_v3.Percent{
+				Value: 0,
+			},
+		}
+		assert.Equal(t, want, got)
+	})
+
+	t.Run("with zone-aware LB enabled", func(t *testing.T) {
+		got := ClusterCommonLBConfig(ZoneAwareLBOpts{Enabled: true})
+		want := &envoy_config_cluster_v3.Cluster_CommonLbConfig{
+			HealthyPanicThreshold: &envoy_type_v3.Percent{
+				Value: 0,
+			},
+			LocalityConfigSpecifier: &envoy_config_cluster_v3.Cluster_CommonLbConfig_ZoneAwareLbConfig_{
+				ZoneAwareLbConfig: &envoy_config_cluster_v3.Cluster_CommonLbConfig_ZoneAwareLbConfig{},
+			},
+		}
+		assert.Equal(t, want, got)
+	})
+
+	t.Run("with zone-aware LB and min cluster size", func(t *testing.T) {
+		minSize := uint64(10)
+		got := ClusterCommonLBConfig(ZoneAwareLBOpts{Enabled: true, MinClusterSize: &minSize})
+		want := &envoy_config_cluster_v3.Cluster_CommonLbConfig{
+			HealthyPanicThreshold: &envoy_type_v3.Percent{
+				Value: 0,
+			},
+			LocalityConfigSpecifier: &envoy_config_cluster_v3.Cluster_CommonLbConfig_ZoneAwareLbConfig_{
+				ZoneAwareLbConfig: &envoy_config_cluster_v3.Cluster_CommonLbConfig_ZoneAwareLbConfig{
+					MinClusterSize: wrapperspb.UInt64(10),
+				},
+			},
+		}
+		assert.Equal(t, want, got)
+	})
+}
+
+func TestClusterZoneAwareLBDisabled(t *testing.T) {
+	s1 := &core_v1.Service{
+		ObjectMeta: meta_v1.ObjectMeta{
+			Name:      "kuard",
+			Namespace: "default",
+		},
+		Spec: core_v1.ServiceSpec{
+			Ports: []core_v1.ServicePort{{
+				Name:       "http",
+				Protocol:   "TCP",
+				Port:       80,
+				TargetPort: intstr.FromInt(8080),
+			}},
 		},
 	}
-	assert.Equal(t, want, got)
+
+	t.Run("zone-aware LB enabled globally but disabled on cluster", func(t *testing.T) {
+		// Create EnvoyGen with zone-aware LB enabled globally
+		envoyGen := NewEnvoyGen(EnvoyGenOpt{
+			XDSClusterName: DefaultXDSClusterName,
+			ZoneAwareLB:    ZoneAwareLBOpts{Enabled: true},
+		})
+
+		cluster := &dag.Cluster{
+			Upstream:            service(s1),
+			ZoneAwareLBDisabled: true,
+		}
+
+		got := envoyGen.Cluster(cluster)
+
+		// The CommonLbConfig should NOT have zone-aware LB configured
+		want := &envoy_config_cluster_v3.Cluster_CommonLbConfig{
+			HealthyPanicThreshold: &envoy_type_v3.Percent{
+				Value: 0,
+			},
+		}
+		assert.Equal(t, want, got.CommonLbConfig)
+	})
+
+	t.Run("zone-aware LB enabled globally and not disabled on cluster", func(t *testing.T) {
+		// Create EnvoyGen with zone-aware LB enabled globally
+		envoyGen := NewEnvoyGen(EnvoyGenOpt{
+			XDSClusterName: DefaultXDSClusterName,
+			ZoneAwareLB:    ZoneAwareLBOpts{Enabled: true},
+		})
+
+		cluster := &dag.Cluster{
+			Upstream:            service(s1),
+			ZoneAwareLBDisabled: false,
+		}
+
+		got := envoyGen.Cluster(cluster)
+
+		// The CommonLbConfig should have zone-aware LB configured
+		want := &envoy_config_cluster_v3.Cluster_CommonLbConfig{
+			HealthyPanicThreshold: &envoy_type_v3.Percent{
+				Value: 0,
+			},
+			LocalityConfigSpecifier: &envoy_config_cluster_v3.Cluster_CommonLbConfig_ZoneAwareLbConfig_{
+				ZoneAwareLbConfig: &envoy_config_cluster_v3.Cluster_CommonLbConfig_ZoneAwareLbConfig{},
+			},
+		}
+		assert.Equal(t, want, got.CommonLbConfig)
+	})
+
+	t.Run("zone-aware LB disabled globally and disabled on cluster", func(t *testing.T) {
+		// Create EnvoyGen with zone-aware LB disabled globally
+		envoyGen := NewEnvoyGen(EnvoyGenOpt{
+			XDSClusterName: DefaultXDSClusterName,
+			ZoneAwareLB:    ZoneAwareLBOpts{Enabled: false},
+		})
+
+		cluster := &dag.Cluster{
+			Upstream:            service(s1),
+			ZoneAwareLBDisabled: true,
+		}
+
+		got := envoyGen.Cluster(cluster)
+
+		// The CommonLbConfig should NOT have zone-aware LB configured
+		want := &envoy_config_cluster_v3.Cluster_CommonLbConfig{
+			HealthyPanicThreshold: &envoy_type_v3.Percent{
+				Value: 0,
+			},
+		}
+		assert.Equal(t, want, got.CommonLbConfig)
+	})
 }
 
 func service(s *core_v1.Service, protocols ...string) *dag.Service {
